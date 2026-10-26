@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="it"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Crossover Designer</title>
+<style>
+:root{--bg:#f6f7f9;--fg:#1c2230;--card:#fff;--ac:#0b6bcb;--ln:#1c2230;--mut:#667085;--bd:#d5d9e0;color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#12161d;--fg:#e8ecf3;--card:#1b212b;--ac:#4da3ff;--ln:#e8ecf3;--mut:#9aa4b5;--bd:#333c4a;color-scheme:dark}}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px system-ui,-apple-system,Segoe UI,sans-serif;padding:12px}
+h1{font-size:20px;margin:4px 0 12px}h2{font-size:16px;margin:16px 0 8px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:12px;margin-bottom:12px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:6px 0}
+.seg button{border:1px solid var(--bd);background:var(--card);color:var(--fg);padding:8px 14px;font-size:15px;cursor:pointer}
+.seg button:first-child{border-radius:8px 0 0 8px}.seg button:last-child{border-radius:0 8px 8px 0}
+.seg button.on{background:var(--ac);color:#fff;border-color:var(--ac)}
+label{color:var(--mut);font-size:13px}
+input,select{background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:7px;font-size:15px;width:90px}
+.sch{overflow-x:auto}svg{max-width:none}
+svg text{fill:var(--ln);font:11px system-ui,sans-serif}svg .l{stroke:var(--ln);fill:none;stroke-width:1.6}svg .b{stroke:var(--ln);fill:var(--card);stroke-width:1.6}
+table{border-collapse:collapse;width:100%;font-size:14px}td,th{border-bottom:1px solid var(--bd);padding:5px 6px;text-align:left}
+.n{color:var(--mut);font-size:13px;line-height:1.4}
+</style></head><body>
+<h1>Crossover Designer</h1>
+<div class="card">
+ <div class="row seg" id="mode"><button data-v="att" class="on">Attivo</button><button data-v="pas">Passivo</button></div>
+ <div class="row seg" id="ways"><button data-v="2" class="on">2 vie</button><button data-v="3">3 vie</button></div>
+ <div class="row seg" id="ord"><button data-v="12">12 dB/ott</button><button data-v="18">18 dB/ott</button><button data-v="24" class="on">24 dB/ott</button></div>
+ <div class="row"><label>f1 (Hz)</label><input id="f1" type="number" value="2500" min="20" max="20000">
+ <label id="f2l" style="display:none">f2 (Hz)</label><input id="f2" type="number" value="400" style="display:none" min="20" max="20000"></div>
+ <div class="row" id="pasopt"><label>Impedenza altoparlanti (Ω)</label><select id="z"><option>4</option><option selected>8</option><option>6</option></select></div>
+ <div class="row" id="attopt"><label>Pot frequenza (kΩ lin.)</label><input id="pf" type="number" value="10" step="1"><label>Pot volume (kΩ)</label><input id="pt" type="number" value="10"></div>
+</div>
+<div class="card"><h2 style="margin-top:0">Schema elettrico</h2><div class="sch" id="sch"></div></div>
+<div class="card" id="sk" style="display:none"><h2 style="margin-top:0">Stadio Sallen-Key (guadagno 1)</h2><div class="sch" id="skd"></div></div>
+<div class="card"><h2 style="margin-top:0">Valori componenti</h2><div id="tab" style="overflow-x:auto"></div><p class="n" id="note"></p></div>
+<script>
+const $=i=>document.getElementById(i),S={mode:'att',ways:2,ord:24},TP=2*Math.PI;
+document.querySelectorAll('.seg').forEach(g=>g.onclick=e=>{const b=e.target.closest('button');if(!b)return;g.querySelectorAll('button').forEach(x=>x.classList.remove('on'));b.classList.add('on');S[g.id]=b.dataset.v;S.ways=+S.ways;S.ord=+S.ord;draw()});
+document.querySelectorAll('input,select').forEach(i=>i.oninput=draw);
+const fL=h=>{const m=h*1e3;return m>=100?m.toFixed(0)+' mH':m>=10?m.toFixed(1)+' mH':m.toFixed(2)+' mH'};
+const fC=c=>{const u=c*1e6;return u>=1?u.toFixed(u>=10?1:2)+' µF':(c*1e9).toFixed(1)+' nF'};
+const fR=r=>r>=1e3?(r/1e3).toFixed(2)+' kΩ':r.toFixed(0)+' Ω';
+const NL={2:[['s','L',2],['p','C',.5]],3:[['s','L',1.5],['p','C',4/3],['s','L',.5]],4:[['s','L',1.8856],['p','C',1.5909],['s','L',.9428],['p','C',.35355]]};
+const NO={12:2,18:3,24:4};
+function seq(t,n,f,R){const w=TP*f;return NL[n].map(([k,e,v])=>{let ty=e,x=v;if(t=='H'){ty=e=='L'?'C':'L';x=1/v}return{k,t:ty,v:ty=='L'?x*R/w:x/(R*w)}})}
+function bands(){const f1=+$('f1').value,f2=+$('f2').value,w=S.ways;let hi=Math.max(f1,f2),lo=Math.min(f1,f2);
+ if(w==2)return[{n:'WOOFER',f:[['L',f1]]},{n:'TWEETER',f:[['H',f1]]}];
+ return[{n:'WOOFER',f:[['L',lo]]},{n:'MEDIO',f:[['H',lo],['L',hi]]},{n:'TWEETER',f:[['H',hi]]}]}
+const E=(t,s)=>`<${t} ${s}/>`;
+function cap(x,y,v){return v?E('line',`class=l x1=${x} y1=${y-9} x2=${x} y2=${y+9}`)+E('line',`class=l x1=${x+6} y1=${y-9} x2=${x+6} y2=${y+9}`):E('line',`class=l x1=${x-9} y1=${y} x2=${x+9} y2=${y}`)+E('line',`class=l x1=${x-9} y1=${y+6} x2=${x+9} y2=${y+6}`)}
+function passive(){const n=NO[S.ord],R=+$('z').value,B=bands(),cnt={L:0,C:0};let svg='',rows=[],H=B.length*115+20,W=60;
+ B.forEach((b,i)=>{const y=i*115+40;let x=30,items=[];b.f.forEach(([t,f])=>items.push(...seq(t,n,f,R)));
+  svg+=E('line',`class=l x1=20 y1=${y} x2=${x} y2=${y}`);
+  items.forEach(it=>{const nm=it.t+(++cnt[it.t]),lab=nm+' '+(it.t=='L'?fL(it.v):fC(it.v));rows.push([nm,it.t=='L'?'Induttanza':'Condensatore',it.t=='L'?fL(it.v):fC(it.v),b.n]);
+   if(it.k=='s'){svg+=E('line',`class=l x1=${x} y1=${y} x2=${x+92} y2=${y}`);
+    if(it.t=='L')svg+=E('rect',`class=b x=${x+16} y=${y-8} width=60 height=16 rx=8`);else svg+=cap(x+43,y,1).replace(/x1=\d+/,'').length?`<rect x=${x+44} y=${y-2} width=4 height=4 style="fill:var(--card)"/><line class=l x1=${x+43} y1=${y-10} x2=${x+43} y2=${y+10}/><line class=l x1=${x+49} y1=${y-10} x2=${x+49} y2=${y+10}/>`:'';
+    svg+=`<text x=${x+16} y=${y-14}>${lab}</text>`}
+   else{const cx=x+46;svg+=E('line',`class=l x1=${x} y1=${y} x2=${x+92} y2=${y}`)+E('circle',`cx=${cx} cy=${y} r=2.5 fill=currentColor`)+E('line',`class=l x1=${cx} y1=${y} x2=${cx} y2=${y+16}`);
+    if(it.t=='C')svg+=`<line class=l x1=${cx-9} y1=${y+16} x2=${cx+9} y2=${y+16}/><line class=l x1=${cx-9} y1=${y+22} x2=${cx+9} y2=${y+22}/>`+E('line',`class=l x1=${cx} y1=${y+22} x2=${cx} y2=${y+34}`);
+    else svg+=E('rect',`class=b x=${cx-8} y=${y+16} width=16 height=24 rx=6`)+E('line',`class=l x1=${cx} y1=${y+40} x2=${cx} y2=${y+46}`);
+    svg+=`<text x=${cx+14} y=${y+32}>${lab}</text>`+gnd(cx,it.t=='C'?y+34:y+46)}
+   x+=92});
+  svg+=E('line',`class=l x1=${x} y1=${y} x2=${x+20} y2=${y}`)+E('rect',`class=b x=${x+20} y=${y-14} width=26 height=28`)+E('line',`class=l x1=${x+33} y1=${y+14} x2=${x+33} y2=${y+26}`)+gnd(x+33,y+26)+`<text x=${x+52} y=${y+4}>${b.n} ${R}Ω</text>`;W=Math.max(W,x+150)});
+ svg=E('line',`class=l x1=20 y1=40 x2=20 y2=${(B.length-1)*115+40}`)+svg+`<text x=4 y=${H-6}>IN dall'amplificatore</text>`;
+ return[`<svg width=${W} height=${H} viewBox="0 0 ${W} ${H}">${svg}</svg>`,rows,'Valori calcolati con carico resistivo ideale (R = impedenza nominale): 12 dB Linkwitz-Riley, 18 dB Butterworth, 24 dB Linkwitz-Riley. Condensatori non polarizzati (film), induttori con bassa resistenza (aria/ferrite). Nel 3 vie il medio usa HP(f1)+LP(f2) in cascata: verifica con misure/simulatore e adatta ai T/S reali dei driver.']}
+const gnd=(x,y)=>`<line class=l x1=${x-9} y1=${y} x2=${x+9} y2=${y}/><line class=l x1=${x-5} y1=${y+4} x2=${x+5} y2=${y+4}/><line class=l x1=${x-2} y1=${y+8} x2=${x+2} y2=${y+8}/>`;
+const W=(a,b,c,d)=>`<line class="l" x1="${a}" y1="${b}" x2="${c}" y2="${d}"/>`;
+const T=(x,y,t,a)=>`<text x="${x}" y="${y}"${a?` text-anchor="${a}"`:''}>${t}</text>`;
+const DOT=(x,y)=>`<circle cx="${x}" cy="${y}" r="2.5" style="fill:var(--ln)"/>`;
+const HD=(x,y)=>`<polygon points="${x},${y} ${x-8},${y+2} ${x-2},${y+8}" style="fill:var(--ln)"/>`;
+function se(k,v,xa,xb,y,n){const m=(xa+xb)/2;if(k=='C')return W(xa,y,m-3,y)+W(m+3,y,xb,y)+W(m-3,y-9,m-3,y+9)+W(m+3,y-9,m+3,y+9)+T(m,y-14,n,'middle');
+ return W(xa,y,m-18,y)+W(m+18,y,xb,y)+`<rect class="b" x="${m-18}" y="${y-6}" width="36" height="12"/>`+(v?W(m-12,y+9,m+12,y-9)+HD(m+12,y-9):'')+T(m,y-14,n,'middle')}
+function sh(k,v,x,ya,yb,n){const m=(ya+yb)/2;if(k=='C')return W(x,ya,x,m-3)+W(x,m+3,x,yb)+W(x-9,m-3,x+9,m-3)+W(x-9,m+3,x+9,m+3)+T(x-14,m+4,n,'end');
+ return W(x,ya,x,m-18)+W(x,m+18,x,yb)+`<rect class="b" x="${x-6}" y="${m-18}" width="12" height="36"/>`+(v?W(x-10,m+14,x+10,m-14)+HD(x+10,m-14):'')+T(x-16,m+4,n,'end')}
+function stage(t,md,K,x0,y0,na,nb){const L=t=='L',Y=y0+60,sk=md=='sk',vn=n=>'Rf+'+n;let s=W(x0,Y,x0+12,Y);
+ if(sk){const sr=L?['R',1]:['C',0];
+  s+=se(sr[0],sr[1],x0+12,x0+62,Y,L?vn(na):'C')+W(x0+62,Y,x0+95,Y)+DOT(x0+80,Y)+se(sr[0],sr[1],x0+95,x0+145,Y,L?vn(nb):'C')+W(x0+145,Y,x0+210,Y)+DOT(x0+160,Y);
+  s+=W(x0+80,Y,x0+80,y0+22)+W(x0+80,y0+22,x0+165,y0+22)+se(L?'C':'R',!L,x0+165,x0+215,y0+22,L?'C':vn(na))+W(x0+215,y0+22,x0+300,y0+22)+W(x0+300,y0+22,x0+300,Y+10);
+  s+=sh(L?'C':'R',!L,x0+160,Y,Y+70,L?'C':vn(nb))+gnd(x0+160,Y+70)+T(x0+245,Y-22,'K='+K.toFixed(2),'middle')}
+ else{s+=se(L?'R':'C',L,x0+12,x0+62,Y,L?vn(na):'C')+W(x0+62,Y,x0+210,Y)+DOT(x0+80,Y)+sh(L?'C':'R',!L,x0+80,Y,Y+70,L?'C':vn(na))+gnd(x0+80,Y+70)}
+ s+=`<polygon class="b" points="${x0+210},${Y-15} ${x0+210},${Y+35} ${x0+280},${Y+10}"/>`+T(x0+214,Y+4,'+')+T(x0+214,Y+28,'−')+W(x0+280,Y+10,x0+300,Y+10)+DOT(x0+300,Y)+W(x0+300,Y+10,x0+300,Y)+W(x0+300,Y,x0+320,Y);
+ s+=W(x0+210,Y+20,x0+200,Y+20)+W(x0+200,Y+20,x0+200,Y+85)+W(x0+300,Y+85,x0+300,Y+10);
+ if(K>1.001)s+=W(x0+200,Y+85,x0+225,Y+85)+se('R',0,x0+225,x0+275,Y+85,'Rb')+W(x0+275,Y+85,x0+300,Y+85)+DOT(x0+200,Y+85)+sh('R',0,x0+200,Y+85,Y+135,'Ra')+gnd(x0+200,Y+135);
+ else s+=W(x0+200,Y+85,x0+300,Y+85);
+ return s}
+const CL=[1e-9,2.2e-9,4.7e-9,10e-9,22e-9,47e-9,100e-9,220e-9,470e-9,1e-6];
+const pick=(f,P)=>{let c=CL[0];CL.forEach(x=>{if(1/(TP*f*x)>=.75*P)c=x});return c};
+const ST={12:[[.5,'sk']],18:[[0,'rc'],[1,'sk']],24:[[Math.SQRT1_2,'sk'],[Math.SQRT1_2,'sk']]};
+function active(){const B=bands(),P=+$('pf').value*1e3,V=+$('pt').value,rows=[],g={},lo=Math.min(+$('f1').value,+$('f2').value),PW=320,RH=215;let svg='',Ys=[],mx=0;
+ B.forEach((b,i)=>{const y0=i*RH+16,Y=y0+60;Ys.push(Y);let x=100;
+  svg+=W(80,Y,100,Y)+T(100,y0-4,b.n+(b.f.length>1?' – PASSA-BANDA (HP + LP)':''));
+  b.f.forEach(([t,f])=>{const tag=(S.ways==2||f==lo)?'f1':'f2',C=pick(f,P),R=1/(TP*f*C);let Rf=R-P/2;const wn=Rf<=0;if(wn)Rf=0;
+   const fmx=Rf>0?Math.round(1/(TP*Rf*C)):'∞',fmn=Math.round(1/(TP*(Rf+P)*C));
+   ST[S.ord].forEach(([Q,md])=>{const K=md=='sk'?3-1/Q:1,n=md=='sk'?2:1;g[tag]=g[tag]||0;const na='P'+tag+String.fromCharCode(97+g[tag]),nb=md=='sk'?'P'+tag+String.fromCharCode(98+g[tag]):'';g[tag]+=n;
+    svg+=stage(t,md,K,x,y0,na,nb);x+=PW;
+    rows.push([b.n,(t=='L'?'LP ':'HP ')+f+' Hz',md=='sk'?'Sallen-Key Q='+Q.toFixed(3)+' K='+K.toFixed(2):'1° ordine RC + buffer','R fissa '+fR(Rf)+' in serie a '+na+(nb?'+'+nb:'')+' ('+$('pf').value+'k lin.) · C = '+fC(C)+(K>1.001?' · Ra = '+fR(1e4)+' · Rb = '+fR(1e4*(K-1)):'')+' · f regolabile '+fmn+'–'+fmx+' Hz'+(wn?' ⚠ riduci il pot':'')])})});
+  const xs=x,px=xs+20;svg+=W(xs,Y,px,Y)+DOT(px,Y)+W(px,Y,px,Y+8)+`<rect class="b" x="${px-6}" y="${Y+8}" width="12" height="44"/>`+W(px,Y+52,px,Y+62)+gnd(px,Y+62)+W(px+22,Y+24,px+6,Y+24)+HD(px+6,Y+24)+T(px-12,Y+34,'Pv'+(i+1)+' '+V+'k','end')+W(px+22,Y+24,px+40,Y+24)
+   +`<polygon class="b" points="${px+40},${Y+16} ${px+40},${Y+50} ${px+80},${Y+33}"/>`+T(px+44,Y+28,'+')+T(px+44,Y+46,'−')+W(px+40,Y+42,px+32,Y+42)+W(px+32,Y+42,px+32,Y+62)+W(px+32,Y+62,px+90,Y+62)+W(px+90,Y+62,px+90,Y+33)+W(px+80,Y+33,px+120,Y+33)+T(px+126,Y+37,'OUT '+b.n);mx=Math.max(mx,px+230)});
+ const m=(Ys[0]+Ys[Ys.length-1])/2;svg+=W(80,Ys[0],80,Ys[Ys.length-1])+W(0,m,22,m)+`<polygon class="b" points="22,${m-14} 22,${m+14} 50,${m}"/>`+W(50,m,80,m)+DOT(80,m)+T(2,m-8,'IN')+T(20,m+28,'buffer');
+ const H=B.length*RH+30;
+ return[`<svg width="${mx}" height="${H}" viewBox="0 0 ${mx} ${H}">${svg}</svg>`,rows,'Stadi Sallen-Key a componenti uguali: la frequenza si regola con i potenziometri doppi lineari (sezioni a/b = due metà dello stesso pot, ogni sigla "Pf1a…" è una sezione; sezioni con lo stesso tag f1/f2 vanno accoppiate sullo stesso asse). Rf = resistenza fissa in serie al pot. Il guadagno K per stadio (Q=0.707 → 1.59; Q=1 → 2) si compensa con il pot di uscita Pv di ogni via; tieni basso il livello in ingresso per evitare saturazione. Op-amp: NE5532/TL072 con ±12 V.']}
+const Q=t=>t.replace(/ ([\w-]+)=([^\s"'>]+?)(?=\s|\/?>)/g,' $1="$2"');
+function draw(){S.ways=+S.ways;S.ord=+S.ord;const p=S.mode=='pas',w3=S.ways==3;$('f2').style.display=$('f2l').style.display=w3?'':'none';$('pasopt').style.display=p?'':'none';$('attopt').style.display=p?'none':'';$('sk').style.display='none';
+ const[s,r,n]=p?passive():active();$('sch').innerHTML=Q(s);
+ $('tab').innerHTML='<table><tr>'+(p?['Comp.','Tipo','Valore','Via']:['Via','Filtro','Tipo stadio','Componenti']).map(h=>'<th>'+h+'</th>').join('')+'</tr>'+r.map(x=>'<tr>'+x.map(c=>'<td>'+c+'</td>').join('')+'</tr>').join('')+'</table>';$('note').textContent=n}
+draw();
+</script></body></html>
